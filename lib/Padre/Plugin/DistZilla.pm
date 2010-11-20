@@ -5,9 +5,10 @@ use 5.008;
 use strict;
 use warnings;
 
-use Padre::Constant ();
-use Padre::Plugin   ();
-use Padre::Wx       ();
+use Padre::Constant   ();
+use Padre::Plugin     ();
+use Padre::Wx         ();
+use Padre::Wx::Dialog ();
 
 use Wx qw(:everything);
 use Wx::Event qw(:everything);
@@ -18,11 +19,13 @@ use Try::Tiny;
 
 our @ISA = qw(Padre::Plugin);
 
-our $VERSION = '0.03';
+our $VERSION = '0.04';
 
 sub plugin_name { return 'DistZilla' }
 
-sub padre_interface { 'Padre::Plugin' => 0.70 }
+sub padre_interfaces {
+    'Padre::Plugin' => 0.70,
+}
 
 sub menu_plugins_simple {
     my $self = shift;
@@ -30,7 +33,7 @@ sub menu_plugins_simple {
     return $self->plugin_name => [
         'start'     => sub { $self->start },
         'release'   => sub { $self->release },
-        'configure' => sub { $self->configure },
+        #'configure' => sub { $self->configure },
     ]
 }
 sub configure {
@@ -54,11 +57,15 @@ sub configure {
 sub _is_configured {
     my $self = shift;
     
+    return 1;
+    
     return $self->{_dzil_conf} if $self->{_dzil_conf};
     
     my $dzil_config = $self->{_dzil_config} = {};
     my $config_dir  = Dist::Zilla::Util->_global_config_root;
     my $config_base = $config_dir->file('config');
+
+=pod
 
     require Dist::Zilla::MVP::Assembler::GlobalConfig;
     require Dist::Zilla::MVP::Section;
@@ -81,6 +88,9 @@ sub _is_configured {
 
         my $seq = $reader->read_config($config_base, { assembler => $assembler });
     } catch {};
+
+=cut
+
 }
 
 sub release {
@@ -92,64 +102,46 @@ sub start {
     unless ( $self->_is_configured ) {
         $self->configure( { message => 1 } );
     }
-
-    # create dialog
-    my $dialog = Wx::Dialog->new(
-        $self->main,
-        -1,
-        'Dist::Zilla',
-        [ -1, -1 ],
-        [ 560, 330 ],
-        Wx::wxDEFAULT_FRAME_STYLE,
+    
+    my $parent = $self->main;
+    
+    my $layout = _get_layout();
+    my $dialog = Padre::Wx::Dialog->new(
+        parent => $parent,
+        title  => Wx::gettext('Start Module with Dist::Zilla'),
+        layout => $layout,
+        width  => [ 200, 300 ],
+        bottom => 10,
     );
     
-    # directory tree
-    my $tree = Wx::DirPickerCtrl->new(
-        $dialog, 
-        -1,
-        '.',
-        Wx::gettext('Pick parent directory'),
-        [400,250],
-    );
-    
-    # input field for module name
-    my $name_input = Wx::TextCtrl->new(
+    # Padre::Wx::Dialog doesn't provide an interface for ListCtrls, so we had to
+    # define a dummy widget that we replace now by the appropriate widget
+    my $list_ctrl = Wx::ListCtrl->new(
         $dialog,
         -1,
-        '',
-        Wx::wxDefaultPosition,
-        Wx::wxDefaultSize,
-        Wx::wxTE_PROCESS_ENTER | Wx::wxSIMPLE_BORDER,
     );
-        
-    my $main_sizer = Wx::GridBagSizer->new( 3, 0 );
-        
-    my $size   = Wx::Button::GetDefaultSize;
-    my $ok_btn = Wx::Button->new( $dialog, Wx::wxID_OK, '', Wx::wxDefaultPosition, $size );
     
-    my $sizerv = Wx::BoxSizer->new(Wx::wxVERTICAL);
-    my $sizerh = Wx::BoxSizer->new(Wx::wxHORIZONTAL);
-    $sizerv->Add( $name_input,    0, Wx::wxALL | Wx::wxEXPAND );
-    $sizerv->Add( $tree,       1, Wx::wxALL | Wx::wxEXPAND );
-    $sizerv->Add( $ok_btn,        0, Wx::wxALL | Wx::wxEXPAND );
-    $sizerh->Add( $sizerv,        1, Wx::wxALL | Wx::wxEXPAND );
-
-    # Fits panel layout
-    $dialog->SetSizerAndFit($sizerh);
-	
-    $name_input->SetFocus;
-
-    $dialog->SetSizer( $main_sizer );
+    for my $plugin ( _get_plugins() ) {
+        my $item = Wx::ListItem->new;
+        $item->SetText( $plugin );
+        $list_ctrl->InsertItem( $item );
+    }
+    
+    $dialog->{_widgets_}->{_plugin_choice_} = $list_ctrl;
 
     my $return = $dialog->ShowModal;
     
+    my $data = $dialog->get_data;
+  
     if ( $return == Wx::wxID_OK ) {
         require File::pushd;
         
-        my $dir = $tree->GetSelectedPath();
+        my $data = $dialog->get_data;
+        
+        my $dir = $data->{_directory_};
         return if !-d $dir;
         
-        my $module = $name_input->GetValue();
+        my $module = $data->{_module_name_};
         return if $module !~ m{ \A [A-Za-z]\w+(?:::\w+)* \z }xms;
         
         my $return = File::pushd::pushd( $dir );
@@ -159,6 +151,29 @@ sub start {
         
         $self->main->run_command( "$prog new $module" );
     }
+}
+
+sub _get_layout {
+    my @layout = (
+        [   [ 'Wx::StaticText', undef,           Wx::gettext('Module Name:') ],
+            [ 'Wx::TextCtrl',   '_module_name_', '' ],
+        ],
+        [   [ 'Wx::StaticText', undef, Wx::gettext('DistZilla Plugins:') ],
+            [ 'Wx::ComboBox', '_plugin_choice_', '', [], Wx::wxCB_READONLY ],
+        ],
+        [   [ 'Wx::StaticText', undef, Wx::gettext('Parent Directory:') ],
+            [ 'Wx::TextCtrl',      '_directory_name_', '' ],
+            [ 'Wx::DirPickerCtrl', '_directory_', '', Wx::gettext('Pick parent directory') ],
+        ],
+        [   [ 'Wx::Button', '_ok_',     Wx::wxID_OK ],
+            [ 'Wx::Button', '_cancel_', Wx::wxID_CANCEL ],
+        ],
+    );
+    return \@layout;
+}
+
+sub _get_plugins {
+    return qw/hallo test/;
 }
 
 1;
