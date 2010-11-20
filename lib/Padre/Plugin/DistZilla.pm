@@ -8,19 +8,21 @@ use warnings;
 use Padre::Constant ();
 use Padre::Plugin   ();
 use Padre::Wx       ();
+
 use Wx qw(:everything);
 use Wx::Event qw(:everything);
+
 use Dist::Zilla;
-use Wx::Perl::DirTree qw(:const);
 use File::Which qw(which);
+use Try::Tiny;
 
 our @ISA = qw(Padre::Plugin);
 
-our $VERSION = '0.01';
+our $VERSION = '0.03';
 
 sub plugin_name { return 'DistZilla' }
 
-sub padre_interface { 'Padre::Plugin' => 0.43 }
+sub padre_interface { 'Padre::Plugin' => 0.70 }
 
 sub menu_plugins_simple {
     my $self = shift;
@@ -31,8 +33,54 @@ sub menu_plugins_simple {
         'configure' => sub { $self->configure },
     ]
 }
-
 sub configure {
+    my ($self,$params) = @_;
+    
+    my $main = $self->main;
+
+    # create dialog
+    my $dialog = Wx::Dialog->new(
+        $main,
+        -1,
+        'Dist::Zilla - Configuration',
+        [ -1, -1 ],
+        [ 560, 330 ],
+        Wx::wxDEFAULT_FRAME_STYLE,
+    );
+    
+    my $rows = 5;
+}
+
+sub _is_configured {
+    my $self = shift;
+    
+    return $self->{_dzil_conf} if $self->{_dzil_conf};
+    
+    my $dzil_config = $self->{_dzil_config} = {};
+    my $config_dir  = Dist::Zilla::Util->_global_config_root;
+    my $config_base = $config_dir->file('config');
+
+    require Dist::Zilla::MVP::Assembler::GlobalConfig;
+    require Dist::Zilla::MVP::Section;
+    
+    # TODO: ein eigenes Chrome-
+    require Dist::Zilla::Chrome::Term;
+    
+    my $assembler = Dist::Zilla::MVP::Assembler::GlobalConfig->new({
+        chrome => Dist::Zilla::Chrome::Term->new,
+        stash_registry => $stash_registry,
+        section_class  => 'Dist::Zilla::MVP::Section', # make this DZMA default
+    });
+  
+    try {
+        my $reader = Dist::Zilla::MVP::Reader::Finder->new({
+          if_none => sub {
+            return $_[2]->{assembler}->sequence
+          },
+        });
+
+        my $seq = $reader->read_config($config_base, { assembler => $assembler });
+    } catch {};
 }
 
 sub release {
@@ -40,6 +88,10 @@ sub release {
 
 sub start {
     my $self = shift;
+    
+    unless ( $self->_is_configured ) {
+        $self->configure( { message => 1 } );
+    }
 
     # create dialog
     my $dialog = Wx::Dialog->new(
@@ -52,13 +104,12 @@ sub start {
     );
     
     # directory tree
-    my $tree = Wx::Perl::DirTree->new(
+    my $tree = Wx::DirPickerCtrl->new(
         $dialog, 
+        -1,
+        '.',
+        Wx::gettext('Pick parent directory'),
         [400,250],
-        {
-            dir     => '.',
-            allowed => wxPDT_DIR,
-        },
     );
     
     # input field for module name
@@ -79,7 +130,7 @@ sub start {
     my $sizerv = Wx::BoxSizer->new(Wx::wxVERTICAL);
     my $sizerh = Wx::BoxSizer->new(Wx::wxHORIZONTAL);
     $sizerv->Add( $name_input,    0, Wx::wxALL | Wx::wxEXPAND );
-    $sizerv->Add( $tree->GetTree, 1, Wx::wxALL | Wx::wxEXPAND );
+    $sizerv->Add( $tree,       1, Wx::wxALL | Wx::wxEXPAND );
     $sizerv->Add( $ok_btn,        0, Wx::wxALL | Wx::wxEXPAND );
     $sizerh->Add( $sizerv,        1, Wx::wxALL | Wx::wxEXPAND );
 
