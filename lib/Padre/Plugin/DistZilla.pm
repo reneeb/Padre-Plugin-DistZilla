@@ -15,6 +15,8 @@ use Wx::Event qw(:everything);
 
 use Dist::Zilla;
 use File::Which qw(which);
+use File::HomeDir;
+use Path::Class;
 use Try::Tiny;
 
 our @ISA = qw(Padre::Plugin);
@@ -65,32 +67,27 @@ sub _is_configured {
     my $config_dir  = Dist::Zilla::Util->_global_config_root;
     my $config_base = $config_dir->file('config');
 
-=pod
-
-    require Dist::Zilla::MVP::Assembler::GlobalConfig;
-    require Dist::Zilla::MVP::Section;
-    
-    # TODO: ein eigenes Chrome-
-    require Dist::Zilla::Chrome::Term;
-    
-    my $assembler = Dist::Zilla::MVP::Assembler::GlobalConfig->new({
-        chrome => Dist::Zilla::Chrome::Term->new,
-        stash_registry => $stash_registry,
-        section_class  => 'Dist::Zilla::MVP::Section', # make this DZMA default
-    });
-  
-    try {
-        my $reader = Dist::Zilla::MVP::Reader::Finder->new({
-          if_none => sub {
-            return $_[2]->{assembler}->sequence
-          },
-        });
-
-        my $seq = $reader->read_config($config_base, { assembler => $assembler });
-    } catch {};
-
-=cut
-
+    # require Dist::Zilla::MVP::Assembler::GlobalConfig;
+    # require Dist::Zilla::MVP::Section;
+    # 
+    # # TODO: ein eigenes Chrome-
+    # require Dist::Zilla::Chrome::Term;
+    # 
+    # my $assembler = Dist::Zilla::MVP::Assembler::GlobalConfig->new({
+        # chrome => Dist::Zilla::Chrome::Term->new,
+        # stash_registry => $stash_registry,
+        # section_class  => 'Dist::Zilla::MVP::Section', # make this DZMA default
+    # });
+  # 
+    # try {
+        # my $reader = Dist::Zilla::MVP::Reader::Finder->new({
+          # if_none => sub {
+            # return $_[2]->{assembler}->sequence
+          # },
+        # });
+# 
+        # my $seq = $reader->read_config($config_base, { assembler => $assembler });
+    # } catch {};
 }
 
 sub release {
@@ -114,21 +111,6 @@ sub start {
         bottom => 10,
     );
     
-    # Padre::Wx::Dialog doesn't provide an interface for ListCtrls, so we had to
-    # define a dummy widget that we replace now by the appropriate widget
-    my $list_ctrl = Wx::ListCtrl->new(
-        $dialog,
-        -1,
-    );
-    
-    for my $plugin ( _get_plugins() ) {
-        my $item = Wx::ListItem->new;
-        $item->SetText( $plugin );
-        $list_ctrl->InsertItem( $item );
-    }
-    
-    $dialog->{_widgets_}->{_plugin_choice_} = $list_ctrl;
-
     my $return = $dialog->ShowModal;
     
     my $data = $dialog->get_data;
@@ -154,12 +136,14 @@ sub start {
 }
 
 sub _get_layout {
+    my @profiles = _get_profiles();
+    
     my @layout = (
         [   [ 'Wx::StaticText', undef,           Wx::gettext('Module Name:') ],
             [ 'Wx::TextCtrl',   '_module_name_', '' ],
         ],
-        [   [ 'Wx::StaticText', undef, Wx::gettext('DistZilla Plugins:') ],
-            [ 'Wx::ComboBox', '_plugin_choice_', '', [], Wx::wxCB_READONLY ],
+        [   [ 'Wx::StaticText', undef, Wx::gettext('DistZilla Profiles:') ],
+            [ 'Wx::ComboBox', '_profile_choice_', '', \@profiles ],
         ],
         [   [ 'Wx::StaticText', undef, Wx::gettext('Parent Directory:') ],
             [ 'Wx::TextCtrl',      '_directory_name_', '' ],
@@ -172,8 +156,19 @@ sub _get_layout {
     return \@layout;
 }
 
-sub _get_plugins {
-    return qw/hallo test/;
+sub _get_profiles {
+    my $home = File::HomeDir->my_home;
+ 
+    my $dir    = Path::Class::Dir->new( $home );
+    my $subdir = $dir->subdir( '.dzil', 'profiles' );
+    
+    return if !-d "$subdir";
+    
+    my @children = $subdir->children;
+    my @dirs     = grep{ $_->isa( 'Path::Class::Dir' ) }@children;
+    my @names    = map { $_->dir_list( -1 ) }@dirs;
+    
+    return @names;
 }
 
 1;
