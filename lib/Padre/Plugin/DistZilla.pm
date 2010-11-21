@@ -111,6 +111,8 @@ sub start {
         bottom => 10,
     );
     
+    Wx::Event::EVT_BUTTON( $dialog, $dialog->{_widgets_}->{_directory_}, \&_on_pick_dir );
+    
     my $return = $dialog->ShowModal;
     
     my $data = $dialog->get_data;
@@ -120,7 +122,7 @@ sub start {
         
         my $data = $dialog->get_data;
         
-        my $dir = $data->{_directory_};
+        my $dir = $data->{_directory_name_};
         return if !-d $dir;
         
         my $module = $data->{_module_name_};
@@ -131,7 +133,11 @@ sub start {
         my $prog = which( 'dzil' );
         return if !$prog;
         
-        $self->main->run_command( "$prog new $module" );
+        my $profile     = $data->{_profile_choice_};
+        my $profile_arg = '';
+        $profile_arg    = "-p $profile" if $profile;
+        
+        $self->main->run_command( "$prog new $profile_arg $module" );
     }
 }
 
@@ -146,14 +152,32 @@ sub _get_layout {
             [ 'Wx::ComboBox', '_profile_choice_', '', \@profiles ],
         ],
         [   [ 'Wx::StaticText', undef, Wx::gettext('Parent Directory:') ],
-            [ 'Wx::TextCtrl',      '_directory_name_', '' ],
-            [ 'Wx::DirPickerCtrl', '_directory_', '', Wx::gettext('Pick parent directory') ],
+            [ 'Wx::TextCtrl', '_directory_name_', '' ],
+            [ 'Wx::Button', '_directory_', Wx::gettext('Select Directory') ],
         ],
         [   [ 'Wx::Button', '_ok_',     Wx::wxID_OK ],
             [ 'Wx::Button', '_cancel_', Wx::wxID_CANCEL ],
         ],
     );
     return \@layout;
+}
+
+sub _on_pick_dir {
+	my ( $dialog, $event ) = @_;
+
+	my $main = Padre->ide->wx->main;
+
+	my $dir_dialog = Wx::DirDialog->new(
+		$main,
+		Wx::gettext("Select directory"),
+		'.'
+	);
+	if ( $dir_dialog->ShowModal == Wx::wxID_CANCEL ) {
+		return;
+	}
+	$dialog->{_widgets_}->{_directory_name_}->SetValue( $dir_dialog->GetPath );
+
+	return;
 }
 
 sub _get_profiles {

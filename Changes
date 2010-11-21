@@ -1,8 +1,9 @@
 Release history for Padre::Plugin::DistZilla
 
-0.04    21 Nov 2010
+0.04    22 Nov 2010
         - remove dependency "Wx::Perl::DirTree"
         + use Padre::Wx::Dialog
+        + add support for profiles
 
 0.02    26 Sep 2010
         + make plugin compatible with Padre 0.70
